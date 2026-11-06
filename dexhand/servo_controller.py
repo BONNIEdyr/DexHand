@@ -357,6 +357,32 @@ class ServoController:
             self._cleanup_after_error(selected)
             raise
 
+    def hold_position(self, ids: Iterable[int] | None = None, *, time_ms: int = 0):
+        """停下本实例的电机输出，读取实际位置并转入位置保持；失败时停止卸力。"""
+        selected = self.selected_ids(ids)
+        integer(time_ms, "time_ms", 0, 30000)
+        if self.bus.dry_run:
+            print(f"[预览] 停止夹紧转动，读取 ID {selected} 的实际位置并切换位置保持；"
+                  "离线无法读取实际位置，不生成虚构的保持目标。")
+            return None
+        try:
+            # 先归零所有正在运行的电机输出，不先卸力，避免读数期间继续夹紧。
+            # 保留运行记录直到 move 成功准备，读数失败时仍能执行停止清理。
+            for servo_id in selected:
+                if servo_id in self._active_motors:
+                    self._mode_packet(servo_id, "motor", self._active_motors[servo_id], 0)
+            positions = {}
+            for servo_id in selected:
+                position, = struct.unpack("<h", self.bus.read(servo_id, Command.POS_READ, 2))
+                cfg = self.servos[servo_id]
+                positions[servo_id] = integer(position, f"ID {servo_id} 保持位置",
+                                               cfg.min_position, cfg.max_position)
+            self.move(positions, time_ms=time_ms)
+            return positions
+        except BaseException:
+            self._cleanup_after_error(selected)
+            raise
+
     def move_then_motor(self, positions: Mapping[int, int], speed: int, *,
                         time_ms: int | None = None, control: str | None = None):
         """先完成位置动作的计时，再将相同目标切换到电机模式。"""

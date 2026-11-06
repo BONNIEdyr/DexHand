@@ -225,7 +225,7 @@ with ServoController(config) as controller:
 1. **电机阶段**：两只舵机进入减速电机模式（默认 `speed` 固定转速），`mirror = true` 时 2 号方向与 1 号相反，按 `open_time_s` / `close_time_s` 计时后同时停转。两条速度报文连续发送，启动时刻只差一个通信间隔。
 2. **位置阶段**：切回位置模式，同步移动到 `open_position` / `close_position`。
 
-闭合后若 `grip_duty` 非零，再切电机占空比模式沿闭合方向输出该占空比作为夹紧力，并一直保持到 `release`。蜗杆自锁，`release` 只撤去夹紧力，物体不会自行松脱，需随后 `open`。`park` 用于从张开状态回零：电机反转 `close_time_s`，再位置模式到 0。`home` 只做位置模式回 0，仅适用于夹爪已在零位附近时。
+闭合后若 `grip_duty` 非零，再切电机占空比模式沿闭合方向输出该占空比作为夹紧力，并一直保持到 `release`。蜗杆自锁，`release` 只撤去夹紧力，物体不会自行松脱，需随后 `open`。`park` 用于从张开状态回零：电机反转 `close_time_s`，再位置模式到 `home_position`。`home` 只做位置模式回到 `home_position`，仅适用于夹爪已在机械零位附近时；省略该参数时仍回到 `[0, 0]`。
 
 电机阶段是**开环计时**，转过的角度受负载、电压影响，所有时间和位置数值都需实机标定。
 
@@ -235,7 +235,7 @@ with ServoController(config) as controller:
 # 先离线预览报文，不开串口、不等待
 .\.venv\Scripts\python.exe task_load.py --dry-run run
 
-# 赛项 I 完整流程：回零 → 张开 → 回车 → 夹紧并显示电压/温度 → 回车释放 → 张开 → 回零
+# 赛项 I 完整流程：回零 → 张开 → 回车闭合夹紧 → 回车位置保持 → 回车张开 → 回车归零
 .\.venv\Scripts\python.exe task_load.py run
 
 # 赛项 II：列出物体参数；按物体运行；现场临时改参数
@@ -251,9 +251,17 @@ with ServoController(config) as controller:
 
 所有脚本支持 `--config`、`--params`、`--dry-run`、`--verbose` 和 `--set KEY=VALUE`（临时覆盖 `[gripper]` 参数，不改文件）。流程中每个需要人工配合的节点都会等待回车；保持阶段每秒打印位置、电压、温度。**任何时候按 Ctrl+C 即急停**：停止并卸力全部舵机，返回码 130。
 
+单独执行 `task_load.py close` 时，回车后停止持续夹紧输出，读取两只舵机的实际位置，并切到位置模式保持这些位置；不会回到配置的 `close_position`。命令退出后仍保持上力，可用 `task_load.py release` 或 `main.py stop` 卸力。切换沿用底层位置动作流程，会短暂卸力再上力，不保证负载下完全无位移；位置保持仍可能发热或震动。若位置读取失败或读数超出软件限位，会报错并尝试停止卸力，不使用猜测目标。`--dry-run` 只说明读取与保持计划，不虚构实际位置。
+
+`task_load.py run` 在闭合并持续夹紧后，第一次回车切换为上述位置保持；保持期间继续显示状态，10 秒达标提示从进入位置保持阶段计时，不自动张开。承托负载后第二次回车张开，确认物体取出后第三次回车回退归零。最初张开后仍需一次回车确认放入物体并开始闭合。多物体抓取脚本的回车释放行为保持原样。
+
+悬挂负载的两次张开分别调参：首次张开和单独 `task_load.py open` 使用 `[gripper]`；保持结束后的释放张开使用 `[release_open]`，也可用 `task_load.py release-open` 单独执行。两套可分别设置 `transport_control`、`transport_speed`、`open_time_s`、`open_position`、`settle_s`、`move_time_ms`；`ids`、`mirror` 和回零设置仍共用 `[gripper]`。新表初始值复制添加时的张开设置，需要独立标定。旧文件省略新表或某个字段时，该项沿用文件中的 `[gripper]` 值。`--set open_time_s=0.3` 只临时调整首次张开；`--set release_open.open_time_s=0.3` 只临时调整释放张开，例如 `task_load.py --dry-run release-open --set release_open.open_time_s=0.3`。两套位置参数均为绝对位置，改变释放张开幅度后也需核对 `park` 的回退行程。
+
 ### 参数说明
 
-`[gripper]` 各项含义见各 TOML 文件注释。`open_position` / `close_position` 写一个整数表示两只相同，写 `[a, b]` 分别给 1、2 号。`params/task_grasping.toml` 的 `[objects.Gxx]` 只写需要覆盖的项，`ids` 和 `mirror` 不允许覆盖；`params/task_manipulation.toml` 的 `[clip.gripper]` / `[knob.gripper]` 同理。
+`[gripper]` 各项含义见各 TOML 文件注释。`home_position` / `open_position` / `close_position` 写一个整数表示两只相同，写 `[a, b]` 按 `ids` 顺序分别指定，范围为 0~1000，且受 `config.toml` 的软件位置限位约束。`params/task_grasping.toml` 的 `[objects.Gxx]` 只写需要覆盖的项，`ids` 和 `mirror` 不允许覆盖；`params/task_manipulation.toml` 的 `[clip.gripper]` / `[knob.gripper]` 同理。
+
+机械零位标定：先将机构调整到期望的初始姿态，再用 `main.py status --ids 3 2`（以悬挂负载当前配置为例）读取两只舵机的 `position` 原始值，而非 `angle_deg`。例如读到 420、580，就在 `params/task_load.toml` 的 `[gripper]` 中填写 `home_position = [420, 580]`。可先运行 `task_load.py --dry-run home` 检查目标，也可用 `task_load.py --dry-run home --set 'home_position=[420,580]'` 临时预览。该设置只改变回零目标，不修改舵机内部零点，也不会平移 `open_position` / `close_position`；开闭位置仍需单独标定。它不提供自动寻零或多圈绝对定位，日常动作中的腕部回零仍使用位置 0。
 
 ### 第一次上机
 

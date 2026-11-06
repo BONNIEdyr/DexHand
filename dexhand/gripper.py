@@ -36,6 +36,7 @@ class GripperParams:
     close_time_s: float = 1.5           # 闭合时电机阶段时长
     close_position: tuple[int, int] = (150, 150)
     grip_duty: int = 300                # 闭合后沿闭合方向输出的占空比；0 表示不夹紧
+    home_position: tuple[int, int] = (0, 0)  # 机械零位对应的舵机原始位置，按 ids 顺序
 
     def __post_init__(self):
         ids = self.ids
@@ -54,6 +55,7 @@ class GripperParams:
         number(self.close_time_s, "close_time_s", 0, 60)
         object.__setattr__(self, "open_position", _pair(self.open_position, "open_position"))
         object.__setattr__(self, "close_position", _pair(self.close_position, "close_position"))
+        object.__setattr__(self, "home_position", _pair(self.home_position, "home_position"))
         integer(self.grip_duty, "grip_duty", 0, 1000)
 
     @classmethod
@@ -124,6 +126,12 @@ class Gripper:
             self.log(f"夹紧：电机 duty 模式输出 {p.grip_duties()}，保持中")
             self.controller.run_motor(p.grip_duties(), control="duty")
 
+    def hold_position(self):
+        """停止持续夹紧，读取实际位置并改为位置保持，而非回到 close_position。"""
+        positions = self.controller.hold_position(self.params.ids)
+        if positions is not None:
+            self.log(f"位置保持：{positions}；保持上力，程序退出后仍保持。")
+
     def release(self):
         """撤去夹紧力并卸力。蜗杆自锁，夹爪不会自行张开，释放物体需随后 open()。"""
         self.log("释放：电机零速并卸力")
@@ -132,11 +140,11 @@ class Gripper:
     def home(self):
         """位置模式直接回零位；仅适用于夹爪已在零位附近（240° 范围内）时。"""
         p = self.params
-        self.log("回零：位置模式到 0")
-        self.controller.move(p.targets((0, 0)), time_ms=p.move_time_ms)
+        self.log(f"回零：位置模式到机械零位 {p.targets(p.home_position)}")
+        self.controller.move(p.targets(p.home_position), time_ms=p.move_time_ms)
 
     def park(self):
-        """从张开状态回到零位：电机反向转闭合时长，再位置模式到 0。"""
+        """从张开状态回到机械零位：电机反向转闭合时长，再位置模式定位。"""
         p = self.params
         self.transport(-1, p.close_time_s, "回退")
         self.home()

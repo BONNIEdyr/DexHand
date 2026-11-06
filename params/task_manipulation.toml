@@ -4,6 +4,7 @@
 
 [gripper]
 ids = [1, 2]
+home_position = [0, 0]        # 夹爪机械零位的 position 原始值；不改变腕部舵机零位
 mirror = true
 transport_control = "speed"
 transport_speed = 20

@@ -4,16 +4,28 @@
 
 [gripper]
 ids = [3, 2]
+home_position = [0, 600]        # 机械零位的 position 原始值，依次对应 ID 3、2；按实机读数填写
 mirror = true                 # 2 号电机方向与 1 号相反（镜像安装）
-transport_control = "speed"   # 电机阶段用固定转速，受电压影响小；也可用 "duty"
-transport_speed = -20          # 1 号张开方向速度；speed 为 1~50，duty 为 1~1000
+transport_control = "duty"    # HTD-35H 使用与上位机对应的 -1000~1000 电机控制值
+transport_speed = 400        # 第一只（ID 3）张开方向；实测约 150 起转，先用 200 标定，非 RPM
 settle_s = 0.3                # 电机停转到切换位置模式的停顿
-move_time_ms = 800            # 位置模式阶段动作时间
-open_time_s = 1.5             # 张开：电机阶段时长
-open_position = 600           # 张开：位置模式目标；写 [a, b] 可给两只舵机不同值
-close_time_s = 1.5            # 闭合：电机阶段时长
-close_position = 150          # 闭合：位置模式目标（比接触点略深）
-grip_duty = 400               # 闭合后沿闭合方向的占空比，决定夹紧力；0 表示不夹紧
+move_time_ms =  0           # 位置模式阶段动作时间
+open_time_s = 2             # 短时标定起点；换用 duty 200 后须重新标定完整张开行程
+open_position = 0           # 张开：位置模式目标；写 [a, b] 可给两只舵机不同值
+close_time_s = 1            # 短时标定起点；闭合行程须单独标定
+close_position = 500          # 闭合：位置模式目标（比接触点略深）
+grip_duty = 400
+       # 闭合后沿闭合方向的占空比，决定夹紧力；0 表示不夹紧
+
+# 第二套：run 保持结束后的释放张开，也可用 task_load.py release-open 单独标定。
+# 初始值复制当前张开设置，须按释放时的姿态独立标定；位置仍是绝对原始值。
+[release_open]
+transport_control = "duty"
+transport_speed = 300         # 第一只舵机的释放张开方向与输出，第二只方向仍由 mirror 决定
+open_time_s = 4               # 释放张开：电机阶段时长（秒）***注意要具体测试抓取物决定
+open_position = 0             # 释放张开：位置目标；可写 [a, b]，按 ids 顺序
+settle_s = 0.3
+move_time_ms = 0
 
 [hold]
 status_interval_s = 2.0       # 保持阶段每隔多久读一次电压、温度、位置

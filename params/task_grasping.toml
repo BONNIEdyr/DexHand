@@ -1,10 +1,11 @@
 # 赛项 II 多物体抓取参数。[gripper] 为默认值，[objects.Gxx] 只写需要覆盖的项。
 # 可覆盖：transport_control、transport_speed、settle_s、move_time_ms、
-#         open_time_s、open_position、close_time_s、close_position、grip_duty。
+#         open_time_s、open_position、close_time_s、close_position、grip_duty、home_position。
 # 以下数值为按物体尺寸的初始估计，须实机标定。位置 0~1000 对应 0~240°。
 
 [gripper]
 ids = [1, 2]
+home_position = [0, 0]        # 机械零位的 position 原始值，依次对应 ids；按实机读数填写
 mirror = true
 transport_control = "speed"
 transport_speed = 20

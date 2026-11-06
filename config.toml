@@ -1,6 +1,6 @@
 # Python 3.11+。先修改串口，再运行 main.py。
 [serial]
-port = "COM4"                  # Windows: COM4；Linux: /dev/ttyUSB0
+port = "COM3"                  # Windows: COM4；Linux: /dev/ttyUSB0
 baudrate = 115200              # 本协议规定 115200；此项只改变电脑端串口参数
 bytesize = 8
 parity = "N"

@@ -46,6 +46,79 @@ def quiet(bus):
 
 
 class GripperMotionTests(unittest.TestCase):
+    def test_enter_hold_uses_measured_positions_and_survives_exit(self):
+        bus = RecordingBus()
+        bus.dry_run = False
+        readings = {1: 321, 2: 654}
+        reads = []
+
+        def read(servo_id, command, count):
+            self.assertEqual((command, count), (Command.POS_READ, 2))
+            self.assertEqual(mode_writes(bus.packets[-2:]),
+                             [(1, 1, 0, 0), (2, 1, 0, 0)])
+            reads.append(servo_id)
+            return struct.pack("<h", readings[servo_id])
+
+        bus.read = read
+        with patch("dexhand.servo_controller.time.sleep"):
+            with quiet(bus) as controller:
+                controller.run_motor({1: -300, 2: 300}, control="duty")
+                Gripper(controller, GripperParams(), log=lambda _: None).hold_position()
+                self.assertFalse(controller.has_running_motors)
+                packet_count = len(bus.packets)
+        self.assertEqual(reads, [1, 2])
+        self.assertEqual(len(bus.packets), packet_count)  # 正常退出不卸力
+        targets = [(p.servo_id, *struct.unpack("<HH", p.parameters))
+                   for p in bus.packets if p.command == Command.MOVE_TIME_WAIT_WRITE]
+        self.assertEqual(targets, [(1, 321, 0), (2, 654, 0)])
+        for servo_id in readings:
+            loads = [p.parameters for p in bus.packets
+                     if p.servo_id == servo_id and p.command == Command.LOAD_WRITE]
+            self.assertEqual(loads[-1], b"\x01")
+
+    def test_hold_invalid_or_unreadable_position_stops_without_target(self):
+        for reading in (-1, 1001, TimeoutError("读取失败")):
+            with self.subTest(reading=reading):
+                bus = RecordingBus()
+                bus.dry_run = False
+
+                def read(servo_id, command, count):
+                    if isinstance(reading, Exception):
+                        raise reading
+                    return struct.pack("<h", 300 if servo_id == 1 else reading)
+
+                bus.read = read
+                with quiet(bus) as controller:
+                    controller.run_motor({1: -300, 2: 300}, control="duty")
+                    with self.assertRaises((ValueError, TimeoutError)):
+                        controller.hold_position([1, 2])
+                    self.assertFalse(controller.has_running_motors)
+                self.assertFalse(any(p.command == Command.MOVE_TIME_WAIT_WRITE for p in bus.packets))
+                for servo_id in (1, 2):
+                    loads = [p.parameters for p in bus.packets
+                             if p.servo_id == servo_id and p.command == Command.LOAD_WRITE]
+                    self.assertEqual(loads[-1], b"\x00")
+
+    def test_home_and_park_use_calibrated_positions_in_id_order(self):
+        for action in ("home", "park"):
+            with self.subTest(action=action):
+                bus = RecordingBus()
+                params = GripperParams(ids=(3, 2), home_position=[420, 580])
+                with quiet(bus) as controller:
+                    gripper = Gripper(controller, params, log=lambda _: None)
+                    getattr(gripper, action)()
+                presets = [(p.servo_id, *struct.unpack("<HH", p.parameters))
+                           for p in bus.packets if p.command == Command.MOVE_TIME_WAIT_WRITE]
+                self.assertEqual(presets, [(3, 420, 800), (2, 580, 800)])
+
+    def test_home_respects_software_limits_before_sending(self):
+        bus = RecordingBus()
+        cfg = Config(SerialSettings(), (ServoSettings(1, min_position=100), ServoSettings(2)))
+        with ServoController(cfg, bus=bus) as controller:
+            with self.assertRaises(ValueError):
+                Gripper(controller, GripperParams(home_position=[50, 580]), log=lambda _: None).home()
+        self.assertEqual(bus.packets, [])
+
     def test_open_sends_mirrored_speeds_back_to_back_then_positions(self):
         bus = RecordingBus()
         with quiet(bus) as controller:
@@ -112,6 +185,35 @@ class GripperMotionTests(unittest.TestCase):
 
 
 class ParamTests(unittest.TestCase):
+    def test_release_open_params_are_independent_and_backward_compatible(self):
+        data = {"gripper": {"ids": [3, 2], "transport_control": "duty",
+                            "transport_speed": 210, "open_time_s": 1, "open_position": 123}}
+        self.assertEqual(task_load.release_open_params(data, {}).open_position, (123, 123))
+        data["release_open"] = {"transport_speed": 320, "open_time_s": 0.4,
+                                "open_position": [222, 333], "move_time_ms": 500}
+        first = task_common.gripper_params(data, {"open_time_s": 0.8})
+        release = task_load.release_open_params(data, {"open_time_s": 0.2})
+        self.assertEqual((first.transport_speed, first.open_time_s, first.open_position),
+                         (210, 0.8, (123, 123)))
+        self.assertEqual((release.transport_speed, release.open_time_s, release.open_position,
+                          release.move_time_ms, release.ids), (320, 0.2, (222, 333), 500, (3, 2)))
+        for invalid in ({"ids": [1, 2]}, {"grip_duty": 400}, {"open_position": -1},
+                        {"transport_speed": 1001}, {"open_time_s": -1}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                task_load.release_open_params(data, invalid)
+
+    def test_home_position_defaults_scalar_pair_and_overrides(self):
+        self.assertEqual(GripperParams().home_position, (0, 0))
+        self.assertEqual(GripperParams.from_table({"home_position": 420}).home_position, (420, 420))
+        params = task_common.gripper_params(
+            {"gripper": {"home_position": [100, 200]}},
+            task_common.parse_overrides(["home_position=[420,580]"]),
+            ({"home_position": [300, 400]}, "object"))
+        self.assertEqual(params.home_position, (420, 580))
+        for value in (-1, 1001, [0], [0, 1, 2], [0, 1001], [True, 0], 1.5):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                GripperParams(home_position=value)
+
     def test_pair_and_override_rules(self):
         params = GripperParams.from_table({"ids": [1, 2], "open_position": [600, 580]})
         self.assertEqual(params.open_position, (600, 580))
@@ -149,6 +251,45 @@ class ParamTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_load_close_enter_holds_instead_of_releasing(self):
+        args = task_load.make_parser().parse_args(["close"])
+        controller = types.SimpleNamespace(bus=types.SimpleNamespace(dry_run=False))
+        data = task_common.load_params(task_load.DEFAULT_PARAMS)
+        with patch("task_load.Gripper") as gripper_class, patch("task_load.hold_until_enter") as wait:
+            self.assertEqual(task_load.body(args)(controller, data, {}), 0)
+            self.assertEqual([call[0] for call in gripper_class.return_value.method_calls],
+                             ["close", "hold_position"])
+            self.assertIn("保持当前位置", wait.call_args.args[1])
+
+    def test_load_close_preview_does_not_invent_positions(self):
+        code, out, err = self.run_cli(task_load.main, ["--dry-run", "close"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("离线无法读取实际位置", out)
+
+    def test_load_run_waits_in_position_hold_before_opening(self):
+        args = task_load.make_parser().parse_args(["run"])
+        controller = types.SimpleNamespace(bus=types.SimpleNamespace(dry_run=False))
+        data = task_common.load_params(task_load.DEFAULT_PARAMS)
+        with patch("task_load.Gripper") as gripper_class, \
+                patch("task_load.hold_until_enter") as wait, \
+                patch("task_load.confirm") as confirm, redirect_stdout(io.StringIO()):
+            gripper = gripper_class.return_value
+            stages = []
+
+            def wait_for_enter(*args, **kwargs):
+                stages.append([call[0] for call in gripper.method_calls])
+                return 1.0
+
+            wait.side_effect = wait_for_enter
+            self.assertEqual(task_load.body(args)(controller, data, {}), 0)
+            self.assertEqual(stages, [["home", "open", "close"],
+                                      ["home", "open", "close", "hold_position"]])
+            self.assertEqual([call[0] for call in gripper.method_calls],
+                             ["home", "open", "close", "hold_position", "open", "park"])
+            self.assertNotIn("target_s", wait.call_args_list[0].kwargs)
+            self.assertEqual(wait.call_args_list[1].kwargs["target_s"], 10)
+            self.assertEqual(confirm.call_count, 2)  # 闭合前确认、取出后归零确认
+
     def run_cli(self, entry, argv):
         out, err = io.StringIO(), io.StringIO()
         with patch("dexhand.task_common.load_config", return_value=config()), \
@@ -161,6 +302,37 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         for phrase in ("回零", "张开", "闭合", "夹紧", "释放", "回退", "未打开串口"):
             self.assertIn(phrase, out)
+
+    def test_load_two_open_profiles_preview(self):
+        code, out, err = self.run_cli(task_load.main,
+            ["--dry-run", "run", "--set", "transport_speed=210",
+             "--set", "release_open.transport_speed=320",
+             "--set", "release_open.open_position=[222,333]"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("{3: 210, 2: -210}", out)
+        release_out = out.split("释放张开：使用 [release_open] 参数", 1)[1]
+        self.assertIn("{3: 320, 2: -320}", release_out)
+        self.assertIn("{3: 222, 2: 333}", release_out)
+        code, out, err = self.run_cli(task_load.main,
+            ["--dry-run", "release-open", "--set", "release_open.open_time_s=0.2"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("转动 0.2 秒", out)
+        self.assertNotIn("闭合", out)
+
+    def test_load_invalid_release_profile_rejected_before_motion(self):
+        code, out, err = self.run_cli(task_load.main,
+            ["--dry-run", "run", "--set", "release_open.open_position=1001"])
+        self.assertEqual(code, 1)
+        self.assertIn("open_position", err)
+        self.assertNotIn("TX ", out)
+
+    def test_load_calibrated_home_preview(self):
+        for action in ("home", "park", "run"):
+            with self.subTest(action=action):
+                code, out, err = self.run_cli(task_load.main,
+                    ["--dry-run", action, "--set", "home_position=[420,580]"])
+                self.assertEqual(code, 0, err)
+                self.assertIn("机械零位 {3: 420, 2: 580}", out)
 
     def test_grasping_object_selection(self):
         code, out, _ = self.run_cli(task_grasping.main, ["--dry-run", "list"])
