@@ -1,0 +1,36 @@
+# 赛项 III 日常手部动作参数。
+# 夹爪先按 [gripper]（可被 [clip.gripper] / [knob.gripper] 覆盖）张开，
+# 再由 [wrist] 指定的 3 号舵机从 0 转到目标位置并转回。位置 0~1000 对应 0~240°。
+
+[gripper]
+ids = [1, 2]
+mirror = true
+transport_control = "speed"
+transport_speed = 20
+settle_s = 0.3
+move_time_ms = 800
+open_time_s = 1.5
+open_position = 500
+close_time_s = 1.5
+close_position = 150
+grip_duty = 0                 # 本赛项默认不夹紧；需要抓住旋钮时在 [knob.gripper] 里设置
+
+[wrist]
+id = 3
+move_time_ms = 800
+
+# M1 捏开夹子：夹口张开 ≥10 mm，保持 2 秒后松开；连续 2 个循环得 10 分
+[clip]
+pinch_position = 400          # 3 号舵机捏合位置（从 0 出发）
+hold_s = 2.5                  # 捏合后保持时间，规则要求 2 秒，留余量
+rest_s = 1.0                  # 两次循环之间的间隔
+cycles = 2
+[clip.gripper]
+open_position = 500           # 捏夹子前夹爪张开量
+
+# M2 拧动旋钮：φ50 低阻力旋钮，转约 90° 再转回
+[knob]
+turn_position = 375           # 90° ÷ 0.24°/格 ≈ 375
+hold_s = 1.0
+[knob.gripper]
+open_position = 450

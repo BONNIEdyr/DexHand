@@ -1,0 +1,49 @@
+# Python 3.11+。先修改串口，再运行 main.py。
+[serial]
+port = "COM4"                  # Windows: COM4；Linux: /dev/ttyUSB0
+baudrate = 115200              # 本协议规定 115200；此项只改变电脑端串口参数
+bytesize = 8
+parity = "N"
+stopbits = 1
+timeout = 0.3                 # 每次读取应答的总超时，单位：秒
+write_timeout = 0.5           # 串口写入超时，单位：秒
+command_interval = 0.005      # 相邻通信之间的最小间隔，不是动作完成时间
+read_retries = 1              # 读取失败后的重试次数；运动写指令不自动重发
+
+# apply 命令执行以下设置。修改文件本身不会驱动舵机。
+# mode: "servo"（位置模式）或 "motor"（减速电机模式）
+# position: 0~1000 对应 0~240°；move_time_ms: 0~30000 毫秒
+# motor_control: "duty"（固定占空比）或 "speed"（固定转速）
+# motor_speed: duty 为 -1000~1000；speed 为 -50~50；负数反转，0 停止
+# 协议没有注明固定转速数值的物理单位，请勿直接当作 RPM。
+# min_position / max_position 是软件位置限制，不写入舵机 EEPROM。
+[[servos]]
+id = 1
+mode = "servo"
+position = 500
+move_time_ms = 1000
+min_position = 0
+max_position = 1000
+motor_control = "duty"
+motor_speed = 0
+
+[[servos]]
+id = 2
+mode = "servo"
+position = 500
+move_time_ms = 1000
+min_position = 0
+max_position = 1000
+motor_control = "duty"
+motor_speed = 0
+
+[[servos]]
+id = 3
+mode = "servo"
+position = 500
+move_time_ms = 1000
+min_position = 0
+max_position = 1000
+motor_control = "duty"
+motor_speed = 0
+

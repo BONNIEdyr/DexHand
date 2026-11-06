@@ -1,0 +1,96 @@
+# 赛项 II 多物体抓取参数。[gripper] 为默认值，[objects.Gxx] 只写需要覆盖的项。
+# 可覆盖：transport_control、transport_speed、settle_s、move_time_ms、
+#         open_time_s、open_position、close_time_s、close_position、grip_duty。
+# 以下数值为按物体尺寸的初始估计，须实机标定。位置 0~1000 对应 0~240°。
+
+[gripper]
+ids = [1, 2]
+mirror = true
+transport_control = "speed"
+transport_speed = 20
+settle_s = 0.3
+move_time_ms = 800
+open_time_s = 1.5
+open_position = 600
+close_time_s = 1.5
+close_position = 150
+grip_duty = 300
+
+[hold]
+status_interval_s = 1.0
+hold_target_s = 5             # 规则：独立保持 5 秒得 4 分
+
+[objects.G01]
+name = "小圆柱 φ20×80 PLA 30g"
+open_time_s = 1.0
+open_position = 400
+close_time_s = 1.0
+close_position = 100
+grip_duty = 300
+
+[objects.G02]
+name = "中圆柱 φ50×100 PLA 100g"
+open_position = 650
+close_position = 250
+grip_duty = 350
+
+[objects.G03]
+name = "大圆柱 φ80×100 PLA 180g"
+open_time_s = 2.0
+open_position = 800
+close_time_s = 2.0
+close_position = 400
+grip_duty = 400
+
+[objects.G04]
+name = "乒乓球 φ40 2.7g（仅接触最低 5mm 以上部位）"
+open_position = 600
+close_position = 250
+grip_duty = 120
+
+[objects.G05]
+name = "立方体 50mm PLA 80g"
+open_position = 650
+close_position = 250
+grip_duty = 350
+
+[objects.G06]
+name = "带盖 PET 瓶 φ65×200 300g（只抓瓶身）"
+open_time_s = 2.0
+open_position = 750
+close_time_s = 2.0
+close_position = 350
+grip_duty = 500
+
+[objects.G07]
+name = "空纸杯 杯口 75 杯底 52 高 85 6g（勿撑破）"
+open_time_s = 2.0
+open_position = 750
+close_position = 350
+grip_duty = 100
+
+[objects.G08]
+name = "软袋 150g（热封边 10mm 禁抓）"
+open_position = 500
+close_position = 100
+grip_duty = 350
+
+[objects.G09]
+name = "聚氨酯海绵 60×60×30 5g（勿预压）"
+open_position = 700
+close_position = 350
+grip_duty = 100
+
+[objects.G10]
+name = "PVC 卡片 86×54×1 6g（竖直放入浅槽）"
+open_position = 350
+close_position = 50
+grip_duty = 200
+
+# 现场公布物体：公布后在 10 分钟准备时间内填写，或用 --set 临时覆盖。
+[objects.G11]
+name = "现场刚性不规则日用品 20~300g"
+
+[objects.G12]
+name = "现场柔性/可变形日用品 5~200g"
+grip_duty = 150
