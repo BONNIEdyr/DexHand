@@ -266,7 +266,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("离线无法读取实际位置", out)
 
-    def test_load_run_waits_in_position_hold_before_opening(self):
+    def test_load_run_grips_until_enter_then_opens(self):
         args = task_load.make_parser().parse_args(["run"])
         controller = types.SimpleNamespace(bus=types.SimpleNamespace(dry_run=False))
         data = task_common.load_params(task_load.DEFAULT_PARAMS)
@@ -282,13 +282,11 @@ class CliTests(unittest.TestCase):
 
             wait.side_effect = wait_for_enter
             self.assertEqual(task_load.body(args)(controller, data, {}), 0)
-            self.assertEqual(stages, [["home", "open", "close"],
-                                      ["home", "open", "close", "hold_position"]])
+            self.assertEqual(stages, [["open", "close"]])
             self.assertEqual([call[0] for call in gripper.method_calls],
-                             ["home", "open", "close", "hold_position", "open", "park"])
-            self.assertNotIn("target_s", wait.call_args_list[0].kwargs)
-            self.assertEqual(wait.call_args_list[1].kwargs["target_s"], 10)
-            self.assertEqual(confirm.call_count, 2)  # 闭合前确认、取出后归零确认
+                             ["open", "close", "open", "park"])
+            self.assertEqual(wait.call_args_list[0].kwargs["target_s"], 10)
+            self.assertEqual(confirm.call_count, 2)  # 放入圆柱后夹紧、取出圆柱后归零
 
     def run_cli(self, entry, argv):
         out, err = io.StringIO(), io.StringIO()

@@ -1,31 +1,65 @@
 # 赛项 I 悬挂负载参数。电机阶段为开环计时，须实机标定。
 # 位置单位：0~1000 对应 0~240°；时间单位：秒 / 毫秒。
-# 硬件参数（串口、ID、min/max_position）仍在 config.toml。
+# 硬件参数（串口、ID、min/max_position）在 params/config.toml。
+#
+# ── 各动作需要标定的参数 ──────────────────────────────────────────────
+# 建议按下面的顺序逐项标定。每一步都先用 --dry-run 预览，再实机运行；
+# 可用 --set 临时试值（例如 --set open_time_s=1.5），确定后再写回本文件。
+#
+# 1. home   位置模式回到零位
+#    标定：home_position
+#    方法：把夹爪手动调到闭合零位，运行 py main.py status --ids 3 2，
+#          读取 position 原始值填入（不是 angle_deg）。
+#
+# 2. open   按 [gripper] 张开（run 第一步）
+#    标定：transport_speed（方向和大小）、mirror、open_time_s、open_position
+#    方法：先用短时间试方向。两只转向不对称就改 mirror；整体反向就把
+#          transport_speed 改为负数。再逐步加长 open_time_s，直到张开幅度够放入圆柱。
+#          电机阶段停下后用 main.py status 读位置，据此填 open_position。
+#
+# 3. close  闭合并夹紧（run 第二步）
+#    标定：close_time_s、close_position、grip_duty、move_time_ms
+#    方法：放入圆柱运行。close_time_s 让夹爪接近圆柱；close_position 设得比
+#          接触点略深；grip_duty 从小往大加，直到负载不滑落，同时观察温度。
+#          move_time_ms 为 0 时位置阶段会被夹紧阶段立即打断，需要先定位就设 300~800。
+#
+# 4. release-open  按 [release_open] 释放张开（run 第三步）
+#    标定：[release_open] 的 transport_speed、open_time_s、open_position
+#    方法：在夹紧圆柱的状态下运行，调到圆柱能顺利取出为止。
+#          没写在 [release_open] 里的项沿用 [gripper]。
+#
+# 5. park   闭合回到零位（run 最后一步）
+#    标定：close_time_s（与 close 共用）、home_position
+#    方法：在释放张开之后运行，确认能回到零位。park 只按 close_time_s 回退，
+#          若 [release_open].open_time_s 比 close_time_s 长很多，回退行程可能不够，
+#          两者要一起调。
+#
+# 6. release  只停止并卸力，无需标定。
+# ─────────────────────────────────────────────────────────────────────
 
 [gripper]
-ids = [3, 2]
-home_position = [0, 600]        # 机械零位的 position 原始值，依次对应 ID 3、2；按实机读数填写
-mirror = true                 # 2 号电机方向与 1 号相反（镜像安装）
-transport_control = "duty"    # HTD-35H 使用与上位机对应的 -1000~1000 电机控制值
-transport_speed = 400        # 第一只（ID 3）张开方向；实测约 150 起转，先用 200 标定，非 RPM
-settle_s = 0.3                # 电机停转到切换位置模式的停顿
-move_time_ms =  0           # 位置模式阶段动作时间
-open_time_s = 2             # 短时标定起点；换用 duty 200 后须重新标定完整张开行程
-open_position = 0           # 张开：位置模式目标；写 [a, b] 可给两只舵机不同值
-close_time_s = 1            # 短时标定起点；闭合行程须单独标定
-close_position = 500          # 闭合：位置模式目标（比接触点略深）
-grip_duty = 400
-       # 闭合后沿闭合方向的占空比，决定夹紧力；0 表示不夹紧
+ids = [3, 2]                  # 所有动作
+home_position = [0, 600]      # 【home / park】机械零位的 position 原始值，依次对应 ID 3、2；按实机读数填写
+mirror = true                 # 【open / close / park / release-open】2 号电机方向与 3 号相反（镜像安装）
+transport_control = "duty"    # 【open / close / park】HTD-35H 使用与上位机对应的 -1000~1000 电机控制值
+transport_speed = 400         # 【open / close / park】ID 3 张开方向的输出；闭合自动取反。实测约 150 起转，非 RPM
+settle_s = 0.3                # 【open / close / park】电机停转到切换位置模式的停顿
+move_time_ms = 0              # 【open / close / park / home】位置模式阶段动作时间
+open_time_s = 2               # 【open】张开时电机阶段时长
+open_position = 0             # 【open】张开：位置模式目标；写 [a, b] 可给两只舵机不同值
+close_time_s = 1              # 【close / park】闭合和回退时电机阶段时长
+close_position = 500          # 【close】闭合：位置模式目标（比接触点略深）
+grip_duty = 400               # 【close】闭合后沿闭合方向的占空比，决定夹紧力；0 表示不夹紧
 
-# 第二套：run 保持结束后的释放张开，也可用 task_load.py release-open 单独标定。
-# 初始值复制当前张开设置，须按释放时的姿态独立标定；位置仍是绝对原始值。
+# 第二套：run 夹紧结束后的释放张开，也可用 task_load.py release-open 单独标定。
+# 只覆盖下面写出的项，ids、mirror、home_position 等仍用 [gripper]。位置是绝对原始值。
 [release_open]
-transport_control = "duty"
-transport_speed = 300         # 第一只舵机的释放张开方向与输出，第二只方向仍由 mirror 决定
-open_time_s = 4               # 释放张开：电机阶段时长（秒）***注意要具体测试抓取物决定
-open_position = 0             # 释放张开：位置目标；可写 [a, b]，按 ids 顺序
-settle_s = 0.3
-move_time_ms = 0
+transport_control = "duty"    # 【release-open】
+transport_speed = 300         # 【release-open】ID 3 释放张开方向的输出，2 号方向仍由 mirror 决定
+open_time_s = 4               # 【release-open】释放张开：电机阶段时长（秒）***注意要具体测试抓取物决定
+open_position = 0             # 【release-open】释放张开：位置目标；可写 [a, b]，按 ids 顺序
+settle_s = 0.3                # 【release-open】
+move_time_ms = 0              # 【release-open】
 
 [hold]
-status_interval_s = 2.0       # 保持阶段每隔多久读一次电压、温度、位置
+status_interval_s = 2.0       # 【close / run 夹紧阶段】每隔多久读一次电压、温度、位置

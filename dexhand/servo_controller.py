@@ -206,11 +206,9 @@ class ServoController:
     """面向已配置舵机的高级控制接口。
 
     运动与状态：
-        set_mode()：切换位置或电机模式，停止当前动作并保持卸力。
         move()：按 ID 设置目标位置和动作时间，并启动位置运动。
-        move_then_motor()：等待位置动作设定时间后切换为电机模式。
+        hold_position()：停止电机输出，读取实际位置并转入位置保持。
         run_motor()：在电机模式下按占空比或转速参数运行。
-        apply_config()：执行配置中各舵机的位置或电机参数。
         stop()：停止目标舵机并卸力。
         read_status()：读取模式、位置、电压、温度和装载状态。
 
@@ -223,7 +221,7 @@ class ServoController:
         是否记录了正在运行的非零速电机。
 
     运动与状态操作的目标 ID 必须已在配置中；省略 ids 时选择全部，
-    move() 和 move_then_motor() 则由 positions 的键指定目标。ID 管理可
+    move() 则由 positions 的键指定目标。ID 管理可
     操作配置外的 ID；set_id() 不修改磁盘上的配置文件。支持 with：退出时
     尝试停止本实例启动的电机并关闭总线。
     move(wait=True) 只等待设定的动作时间，不确认舵机实际到位。
@@ -315,19 +313,6 @@ class ServoController:
         except Exception:
             LOG.exception("异常后的停止指令未能全部发送，请检查硬件")
 
-    def set_mode(self, mode: str, ids: Iterable[int] | None = None, *, control: str | None = None):
-        if mode not in ("servo", "motor"):
-            raise ValueError("mode 必须为 servo 或 motor")
-        if control is not None:
-            motor_limit(control)
-        selected = self.selected_ids(ids)
-        try:
-            for servo_id in selected:
-                self._prepare(servo_id, mode, control or self.servos[servo_id].motor_control)
-        except BaseException:
-            self._cleanup_after_error(selected)
-            raise
-
     def move(self, positions: Mapping[int, int], *, time_ms: int | None = None, wait: bool = True):
         """预设所有目标；选中全部配置 ID 时广播启动，子集按 ID 启动。"""
         selected = self.selected_ids(positions)
@@ -383,18 +368,6 @@ class ServoController:
             self._cleanup_after_error(selected)
             raise
 
-    def move_then_motor(self, positions: Mapping[int, int], speed: int, *,
-                        time_ms: int | None = None, control: str | None = None):
-        """先完成位置动作的计时，再将相同目标切换到电机模式。"""
-        selected = self.selected_ids(positions)
-        # 在开始位置运动前校验电机参数，避免第二阶段才发现参数错误。
-        for servo_id in selected:
-            selected_control = control or self.servos[servo_id].motor_control
-            limit = motor_limit(selected_control)
-            integer(speed, f"ID {servo_id} motor_speed", -limit, limit)
-        self.move(positions, time_ms=time_ms)
-        self.run_motor(speed, selected, control=control)
-
     def run_motor(self, speed: int | Mapping[int, int], ids: Iterable[int] | None = None, *,
                   control: str | None = None):
         """进入电机模式运行。speed 可为统一数值，或按 ID 给出各自速度的映射。
@@ -426,20 +399,6 @@ class ServoController:
                     # 先登记再发送；即使串口在部分写入后报错，退出时仍尝试停止。
                     self._active_motors[servo_id] = controls[servo_id]
                 self._mode_packet(servo_id, "motor", controls[servo_id], speeds[servo_id])
-        except BaseException:
-            self._cleanup_after_error(selected)
-            raise
-
-    def apply_config(self, ids: Iterable[int] | None = None):
-        selected = self.selected_ids(ids)
-        positions = {i: self.servos[i].position for i in selected if self.servos[i].mode == "servo"}
-        try:
-            if positions:
-                self.move(positions)
-            for servo_id in selected:
-                cfg = self.servos[servo_id]
-                if cfg.mode == "motor":
-                    self.run_motor(cfg.motor_speed, [servo_id], control=cfg.motor_control)
         except BaseException:
             self._cleanup_after_error(selected)
             raise

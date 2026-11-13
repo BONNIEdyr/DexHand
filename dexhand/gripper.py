@@ -20,7 +20,7 @@ def _pair(value, name: str) -> tuple[int, int]:
         value = (value, value)
     if not isinstance(value, (list, tuple)) or len(value) != 2:
         raise ValueError(f"{name} 必须是一个整数，或两个整数的列表（按 ids 顺序）")
-    return tuple(integer(item, name, 0, 1000) for item in value)
+    return integer(value[0], name, 0, 1000), integer(value[1], name, 0, 1000)
 
 
 @dataclass(frozen=True)

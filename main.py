@@ -15,12 +15,11 @@ from dexhand.servo_controller import ServoController
 from dexhand.settings import load_config, number
 
 
-DEFAULT_CONFIG = Path(__file__).resolve().with_name("config.toml")
+DEFAULT_CONFIG = Path(__file__).resolve().parent / "params" / "config.toml"
 
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="总线舵机：位置控制 / 减速电机控制 / ID 管理")
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="配置文件路径")
     parser.add_argument("--dry-run", action="store_true", help="只显示发送报文，不打开串口")
     parser.add_argument("--verbose", action="store_true", help="显示通信日志")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -40,9 +39,6 @@ def make_parser() -> argparse.ArgumentParser:
     set_id = commands.add_parser("set-id", help="修改硬件 ID（掉电保存），建议只连接目标舵机")
     set_id.add_argument("old_id", type=int, help="当前硬件 ID")
     set_id.add_argument("new_id", type=int, help="新的空闲硬件 ID，0~253")
-    mode = command("mode", "切换模式，零速并保持卸力；用 move/motor 开始运动")
-    mode.add_argument("mode", choices=("servo", "motor"))
-    mode.add_argument("--control", choices=("duty", "speed"), help="电机控制方式")
     move = command("move", "进入位置模式并移动；多个 ID 使用统一启动指令")
     positions = move.add_mutually_exclusive_group(required=True)
     positions.add_argument("--position", type=int, help="所有目标使用相同位置，0~1000")
@@ -53,16 +49,6 @@ def make_parser() -> argparse.ArgumentParser:
     motor.add_argument("--speed", type=int, required=True, help="正转为正，反转为负，0 停止")
     motor.add_argument("--control", choices=("duty", "speed"), help="默认各舵机配置值")
     motor.add_argument("--duration", type=float, help="运行秒数；省略时等待 Ctrl+C")
-    sequence = command("sequence", "同一批舵机先到指定位置，再切换电机模式运行")
-    sequence_positions = sequence.add_mutually_exclusive_group(required=True)
-    sequence_positions.add_argument("--position", type=int, help="所有目标使用相同位置，0~1000")
-    sequence_positions.add_argument("--positions", type=int, nargs="+", help="按 --ids 顺序指定位置")
-    sequence.add_argument("--time-ms", type=int, help="位置动作时间；默认各舵机配置值")
-    sequence.add_argument("--speed", type=int, required=True, help="电机控制值；范围由 --control 决定")
-    sequence.add_argument("--control", choices=("duty", "speed"), help="默认各舵机配置值")
-    sequence.add_argument("--duration", type=float, help="电机运行秒数；省略时等待 Ctrl+C")
-    apply = command("apply", "执行配置文件中各舵机的模式和运动参数")
-    apply.add_argument("--duration", type=float, help="非零速电机运行秒数；省略时等待 Ctrl+C")
     return parser
 
 
@@ -90,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             if not ports:
                 print("未发现串口，请连接 USB 转总线舵机接口。")
             return 0
-        config = load_config(args.config)
+        config = load_config(DEFAULT_CONFIG)
         duration = getattr(args, "duration", None)
         if duration is not None:
             number(duration, "duration", 0.001, 86400)
@@ -119,10 +105,7 @@ def main(argv: list[str] | None = None) -> int:
                         failed = True
                         print(f"ID {servo_id}: {exc}", file=sys.stderr)
                 return 1 if failed else 0
-            if args.command == "mode":
-                controller.set_mode(args.mode, ids, control=args.control)
-                print(f"已{'预览' if args.dry_run else '发送'}模式设置：{args.mode}；保持卸力。")
-            elif args.command == "move":
+            if args.command == "move":
                 values = args.positions if args.positions is not None else [args.position] * len(ids)
                 if len(values) != len(ids):
                     raise ValueError("--positions 数量必须与目标 ID 数量一致")
@@ -130,18 +113,6 @@ def main(argv: list[str] | None = None) -> int:
                 print("位置控制报文已" + ("预览。" if args.dry_run else "发送；到位情况可用 status 查询。"))
             elif args.command == "motor":
                 controller.run_motor(args.speed, ids, control=args.control)
-                wait_for_motors(controller, duration)
-            elif args.command == "sequence":
-                values = args.positions if args.positions is not None else [args.position] * len(ids)
-                if len(values) != len(ids):
-                    raise ValueError("--positions 数量必须与目标 ID 数量一致")
-                controller.move_then_motor(dict(zip(ids, values)), args.speed,
-                                           time_ms=args.time_ms, control=args.control)
-                print("已预览位置与电机阶段报文。" if args.dry_run else
-                      "位置阶段计时结束，已切换至电机模式。")
-                wait_for_motors(controller, duration)
-            elif args.command == "apply":
-                controller.apply_config(ids)
                 wait_for_motors(controller, duration)
             elif args.command == "stop":
                 controller.stop(ids)

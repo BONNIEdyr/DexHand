@@ -1,4 +1,4 @@
-"""ID 管理和同一次运行中顺序切换模式的无硬件测试。"""
+"""ID 管理与命令行的无硬件测试。"""
 
 from contextlib import redirect_stdout
 import io
@@ -64,21 +64,7 @@ class FakeSerial:
         self.closed = True
 
 
-class RecordingBus:
-    dry_run = True
-
-    def __init__(self):
-        self.packets = []
-        self.closed = False
-
-    def write(self, servo_id, command, parameters=b""):
-        self.packets.append(decode_packet(encode_packet(servo_id, command, parameters)))
-
-    def close(self):
-        self.closed = True
-
-
-class IdAndSequenceTests(unittest.TestCase):
+class IdTests(unittest.TestCase):
     def test_known_and_broadcast_id_read(self):
         wire = FakeSerial()
         with ServoController(config(), bus=ServoBus(config().serial, transport=wire)) as controller:
@@ -124,25 +110,7 @@ class IdAndSequenceTests(unittest.TestCase):
                 controller.set_id(1, 4)
         self.assertFalse(any(packet.command == Command.ID_WRITE for packet in wire.packets))
 
-    def test_position_phase_precedes_motor_mode(self):
-        bus = RecordingBus()
-        with ServoController(config(), bus=bus) as controller:
-            controller.move_then_motor({1: 500}, -20, time_ms=100, control="speed")
-            self.assertTrue(controller.has_running_motors)
-            commands = [packet.command for packet in bus.packets]
-            self.assertLess(commands.index(Command.MOVE_START),
-                            len(commands) - 1 - commands[::-1].index(Command.MODE_WRITE))
-        self.assertTrue(bus.closed)
-        self.assertEqual(bus.packets[-1].parameters, bytes((0,)))
-
-    def test_invalid_motor_stage_cannot_start_position_stage(self):
-        bus = RecordingBus()
-        with ServoController(config(), bus=bus) as controller:
-            with self.assertRaises(ValueError):
-                controller.move_then_motor({1: 500}, 51, control="speed")
-        self.assertEqual(bus.packets, [])
-
-    def test_cli_id_discovery_and_sequence_preview(self):
+    def test_cli_id_discovery(self):
         wire = FakeSerial()
         output = io.StringIO()
         with patch("main.load_config", return_value=config()), \
@@ -150,13 +118,6 @@ class IdAndSequenceTests(unittest.TestCase):
                 redirect_stdout(output):
             self.assertEqual(main.main(["read-id", "--discover"]), 0)
         self.assertIn("当前硬件 ID：1", output.getvalue())
-
-        output = io.StringIO()
-        with patch("main.load_config", return_value=config()), redirect_stdout(output):
-            self.assertEqual(main.main(["--dry-run", "sequence", "--ids", "1",
-                                        "--position", "500", "--speed", "-20",
-                                        "--control", "speed", "--duration", "1"]), 0)
-        self.assertIn("已预览位置与电机阶段报文", output.getvalue())
 
     def test_cli_set_id_and_preview(self):
         wire = FakeSerial()

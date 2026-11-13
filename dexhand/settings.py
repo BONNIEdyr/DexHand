@@ -55,26 +55,20 @@ class SerialSettings:
 @dataclass(frozen=True)
 class ServoSettings:
     id: int
-    mode: str = "servo"
-    position: int = 500
-    move_time_ms: int = 1000
     min_position: int = 0
     max_position: int = 1000
+    # 以下两项为 main.py move / motor 省略 --time-ms / --control 时的默认值，一般不需写入配置。
+    move_time_ms: int = 1000
     motor_control: str = "duty"
-    motor_speed: int = 0
 
     def __post_init__(self):
         integer(self.id, "舵机 ID", 0, 253)
-        if self.mode not in ("servo", "motor"):
-            raise ValueError("mode 必须为 servo 或 motor")
         integer(self.min_position, "min_position", 0, 1000)
         integer(self.max_position, "max_position", 0, 1000)
         if self.min_position >= self.max_position:
             raise ValueError("min_position 必须小于 max_position")
-        integer(self.position, f"ID {self.id} position", self.min_position, self.max_position)
         integer(self.move_time_ms, "move_time_ms", 0, 30000)
-        limit = motor_limit(self.motor_control)
-        integer(self.motor_speed, "motor_speed", -limit, limit)
+        motor_limit(self.motor_control)
 
 
 @dataclass(frozen=True)

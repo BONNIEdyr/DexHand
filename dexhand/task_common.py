@@ -14,12 +14,11 @@ from dexhand.gripper import GripperParams
 from dexhand.servo_controller import ServoController
 from dexhand.settings import load_config, number
 
-DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "config.toml"
+DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "params" / "config.toml"
 
 
 def make_parser(description: str, default_params: Path) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="串口与舵机配置")
     parser.add_argument("--params", type=Path, default=default_params, help="本赛项参数文件")
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                         help="临时覆盖夹爪参数，例如 --set grip_duty=400 --set open_position=[600,580]")
@@ -63,7 +62,7 @@ def run(args: argparse.Namespace, body) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING,
                         format="%(levelname)s: %(message)s")
     try:
-        config = load_config(args.config)
+        config = load_config(DEFAULT_CONFIG)
         data = load_params(args.params)
         overrides = parse_overrides(args.set)
         with ServoController(config, dry_run=args.dry_run) as controller:
